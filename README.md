@@ -44,6 +44,8 @@ pip install -r requirements.txt
 
 Weights are already under `weights/yolo11s.pt` (no download step). The solution sets `YOLO_OFFLINE=true` so Ultralytics does not touch the network.
 
+`requirements.txt` pins **torch 2.6 / torchvision 0.21** so a plain `pip install -r requirements.txt` on Linux pulls **CUDA 12** wheels (T4-friendly). Torch ≥2.11 from PyPI depends on CUDA 13 and can fail on typical jury drivers.
+
 ## Run
 
 Official-style run (Part A + Part B, time budget = 3× video duration):

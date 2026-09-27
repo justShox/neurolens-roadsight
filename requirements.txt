@@ -1,8 +1,10 @@
+# CUDA 12.x on Linux x86_64 (T4-class). Do NOT bump torch past 2.10 —
+# PyPI wheels for torch ≥2.11 depend on CUDA 13 and can fail on typical jury drivers.
 numpy==2.4.6
-opencv-python==5.0.0.93
-torch==2.14.0
-torchvision==0.29.0
+opencv-python==4.11.0.86
+torch==2.6.0
+torchvision==0.21.0
 ultralytics==8.4.160
 lap==0.5.13
 imageio-ffmpeg==0.6.0
-matplotlib==3.11.2
+matplotlib==3.10.3
