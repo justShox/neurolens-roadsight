@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.events import (congestion, failure_to_yield, jaywalking, red_light, solid_line, stop_line,
+from src.events import (congestion, failure_to_yield, illegal_turn, jaywalking, red_light, solid_line, stop_line,
                         stopped_vehicle)
 from src.events.common import Context
 from src.scene import Scene
@@ -17,6 +17,7 @@ RULES = {
     "congestion": congestion.detect,
     "red_light": red_light.detect,
     "stop_line": stop_line.detect,
+    "illegal_turn": illegal_turn.detect,
 }
 
 
