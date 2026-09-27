@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>NeuroLens — разметка событий</title>
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 0; background: #111; color: #ddd; display: flex; height: 100vh; }
+  #left { flex: 1; display: flex; flex-direction: column; padding: 10px; min-width: 0; }
+  #right { width: 430px; padding: 10px; overflow-y: auto; background: #1a1a1a; }
+  video { width: 100%; max-height: 70vh; background: #000; }
+  #timeline { position: relative; height: 90px; background: #222; margin-top: 6px; cursor: pointer; }
+  #cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; pointer-events: none; }
+  .seg { position: absolute; height: 5px; opacity: .85; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  button { background: #333; color: #ddd; border: 1px solid #555; padding: 4px 8px; cursor: pointer; border-radius: 3px; }
+  button.active { outline: 2px solid #fff; }
+  .cls { font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td { padding: 3px; border-bottom: 1px solid #333; }
+  tr:hover { background: #262626; cursor: pointer; }
+  #status { font-family: monospace; font-size: 14px; }
+  .pending { color: #fc0; }
+  kbd { background: #333; padding: 0 4px; border-radius: 3px; }
+  input, textarea { background: #222; color: #ddd; border: 1px solid #555; }
+</style>
+</head>
+<body>
+<div id="left">
+  <div class="row">
+    <input type="file" id="videoFile" accept="video/*">
+    <label>fps <input id="fps" value="29.97002997" size="10"></label>
+    <label>Разметку загрузить <input type="file" id="jsonFile" accept=".json"></label>
+    <button id="save">Сохранить JSON</button>
+  </div>
+  <video id="video" controls></video>
+  <div id="timeline"><div id="cursor"></div></div>
+  <div class="row">
+    <button id="btnStart">▶ Старт события (S или [)</button>
+    <button id="btnEnd">■ Конец события (D или ])</button>
+    <span id="status">—</span>
+  </div>
+  <div class="row" style="font-size:12px">
+    <kbd>Space</kbd> play/pause · <kbd>←/→</kbd> ±1 кадр · <kbd>Shift+←/→</kbd> ±1 с ·
+    <kbd>J/L</kbd> ±5 с · <kbd>1–9,0,Q,W,E,R</kbd> класс · <kbd>S</kbd> или <kbd>[</kbd> старт · <kbd>D</kbd> или <kbd>]</kbd> конец ·
+    <kbd>Esc</kbd> отмена · <kbd>-/=</kbd> скорость
+  </div>
+  <textarea id="note" rows="2" placeholder="заметка к следующему событию (необязательно)"></textarea>
+</div>
+<div id="right">
+  <div id="classes"></div>
+  <h4>События <span id="count"></span></h4>
+  <table id="events"></table>
+</div>
+<script>
+const CLASSES = ["accident","near_miss","red_light","wrong_way","illegal_u_turn","stopped_vehicle",
+  "jaywalking","failure_to_yield","illegal_turn","solid_line_crossing","stop_line","congestion",
+  "road_obstacle","fire_smoke"];
+const KEYS = ["1","2","3","4","5","6","7","8","9","0","q","w","e","r"];
+const CODES = ["Digit1","Digit2","Digit3","Digit4","Digit5","Digit6","Digit7","Digit8","Digit9","Digit0",
+  "KeyQ","KeyW","KeyE","KeyR"];
+const COLORS = ["#e33","#f90","#f0f","#c3f","#39f","#fd0","#3f9","#0cc","#88f","#f6a","#a60","#999","#6c3","#f55"];
+
+const video = document.getElementById("video");
+const tl = document.getElementById("timeline");
+let videoName = "", events = [], cls = 0, pendingStart = null;
+
+const fps = () => parseFloat(document.getElementById("fps").value) || 29.97;
+const snap = t => Math.round(t * fps()) / fps();
+const fmt = t => { const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(2).padStart(5, "0")}`; };
+const storeKey = () => "neurolens:" + videoName;
+
+function renderClasses() {
+  const box = document.getElementById("classes");
+  box.innerHTML = "";
+  CLASSES.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.className = "cls" + (i === cls ? " active" : "");
+    b.style.borderLeft = `6px solid ${COLORS[i]}`;
+    b.textContent = `${KEYS[i].toUpperCase()} ${c}`;
+    b.onclick = () => { cls = i; renderAll(); };
+    box.appendChild(b);
+  });
+}
+
+function renderEvents() {
+  const tb = document.getElementById("events");
+  tb.innerHTML = "";
+  const sorted = events.map((e, i) => [e, i]).sort((a, b) => a[0][0] - b[0][0]);
+  for (const [e, i] of sorted) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td style="color:${COLORS[CLASSES.indexOf(e[2])]}">${e[2]}</td>
+      <td>${fmt(e[0])}</td><td>${fmt(e[1])}</td><td>${(e[1] - e[0]).toFixed(1)}s</td>
+      <td>${e[3] || ""}</td><td><button data-i="${i}">✕</button></td>`;
+    tr.onclick = ev => {
+      if (ev.target.dataset.i !== undefined) { events.splice(+ev.target.dataset.i, 1); persist(); renderAll(); }
+      else video.currentTime = e[0];
+    };
+    tb.appendChild(tr);
+  }
+  document.getElementById("count").textContent = `(${events.length})`;
+}
+
+function renderTimeline() {
+  tl.querySelectorAll(".seg").forEach(n => n.remove());
+  const d = video.duration || 1;
+  for (const e of events) {
+    const i = CLASSES.indexOf(e[2]);
+    const s = document.createElement("div");
+    s.className = "seg";
+    Object.assign(s.style, { left: `${e[0] / d * 100}%`, width: `${Math.max(.2, (e[1] - e[0]) / d * 100)}%`,
+      top: `${i * 6 + 2}px`, background: COLORS[i] });
+    s.title = `${e[2]} ${fmt(e[0])}–${fmt(e[1])}`;
+    tl.appendChild(s);
+  }
+}
+
+function renderStatus() {
+  const t = video.currentTime || 0;
+  document.getElementById("cursor").style.left = `${t / (video.duration || 1) * 100}%`;
+  const frame = Math.round(t * fps());
+  let s = `${fmt(t)}  кадр ${frame}  x${video.playbackRate}  класс: ${CLASSES[cls]}`;
+  if (pendingStart !== null) s += `  <span class="pending">● старт ${fmt(pendingStart)}</span>`;
+  document.getElementById("status").innerHTML = s;
+}
+
+function renderAll() { renderClasses(); renderEvents(); renderTimeline(); renderStatus(); }
+
+function overlaps(s, e, label) {
+  return events.some(x => x[2] === label && s < x[1] && x[0] < e);
+}
+
+function persist() { if (videoName) localStorage.setItem(storeKey(), JSON.stringify(events)); }
+
+function exportJSON() {
+  const out = { [videoName]: {
+    duration: +video.duration.toFixed(3), fps: +fps().toFixed(5),
+    events: events.slice().sort((a, b) => a[0] - b[0]).map(e => [+e[0].toFixed(3), +e[1].toFixed(3), e[2]]),
+    notes: events.filter(e => e[3]).map(e => [+e[0].toFixed(3), e[2], e[3]]),
+  }};
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: "application/json" }));
+  a.download = videoName.replace(/\.[^.]+$/, "") + "_labels.json";
+  a.click();
+}
+
+document.getElementById("videoFile").onchange = ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  videoName = f.name.replace(/\.mp4$/i, ".MP4");
+  video.src = URL.createObjectURL(f);
+  events = JSON.parse(localStorage.getItem(storeKey()) || "[]");
+  pendingStart = null;
+  ev.target.blur();
+};
+
+document.getElementById("jsonFile").onchange = async ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const data = JSON.parse(await f.text());
+  const entry = data[videoName] || Object.values(data)[0];
+  const notes = new Map((entry.notes || []).map(n => [`${n[0]}|${n[1]}`, n[2]]));
+  events = entry.events.map(e => [e[0], e[1], e[2], notes.get(`${e[0]}|${e[2]}`) || ""]);
+  persist(); renderAll();
+};
+
+document.getElementById("save").onclick = exportJSON;
+video.ontimeupdate = renderStatus;
+video.onloadedmetadata = renderAll;
+tl.onclick = ev => {
+  const r = tl.getBoundingClientRect();
+  video.currentTime = (ev.clientX - r.left) / r.width * video.duration;
+};
+
+document.addEventListener("keydown", ev => {
+  if (ev.target.tagName === "TEXTAREA" || (ev.target.tagName === "INPUT" && ev.target.type !== "file")) return;
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  // ev.code is the physical key, so shortcuts work with any keyboard layout (e.g. Russian)
+  const c = ev.code;
+  const step = 1 / fps();
+  if (c === "Space") { video.paused ? video.play() : video.pause(); }
+  else if (c === "ArrowLeft") { video.pause(); video.currentTime = Math.max(0, video.currentTime - (ev.shiftKey ? 1 : step)); }
+  else if (c === "ArrowRight") { video.pause(); video.currentTime += ev.shiftKey ? 1 : step; }
+  else if (c === "KeyJ") video.currentTime = Math.max(0, video.currentTime - 5);
+  else if (c === "KeyL") video.currentTime += 5;
+  else if (c === "Minus") video.playbackRate = Math.max(.25, video.playbackRate / 2);
+  else if (c === "Equal") video.playbackRate = Math.min(8, video.playbackRate * 2);
+  else if (CODES.includes(c)) cls = CODES.indexOf(c);
+  else if (c === "BracketLeft" || c === "KeyS") markStart();
+  else if (c === "BracketRight" || c === "KeyD") markEnd();
+  else if (c === "Escape") pendingStart = null;
+  else return;
+  ev.preventDefault();
+  renderAll();
+});
+
+function markStart() { pendingStart = snap(video.currentTime); renderAll(); }
+
+function markEnd() {
+  if (pendingStart === null) { alert("Сначала поставьте старт"); return; }
+  const end = snap(video.currentTime), label = CLASSES[cls];
+  if (end <= pendingStart) { alert("Конец должен быть позже старта"); return; }
+  if (overlaps(pendingStart, end, label)) { alert(`Пересекается с другим ${label}: объедините в один отрезок`); return; }
+  const note = document.getElementById("note");
+  events.push([pendingStart, end, label, note.value.trim()]);
+  note.value = ""; pendingStart = null; persist();
+  renderAll();
+}
+
+document.getElementById("btnStart").onclick = ev => { ev.target.blur(); markStart(); };
+document.getElementById("btnEnd").onclick = ev => { ev.target.blur(); markEnd(); };
+</script>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>NeuroLens — разметка сцены</title>
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 0; background: #111; color: #ddd; display: flex; height: 100vh; }
+  #left { flex: 1; padding: 10px; min-width: 0; display: flex; flex-direction: column; }
+  #right { width: 380px; padding: 10px; overflow-y: auto; background: #1a1a1a; font-size: 13px; }
+  canvas { width: 100%; background: #000; cursor: crosshair; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  button, select, input { background: #333; color: #ddd; border: 1px solid #555; padding: 4px 8px; border-radius: 3px; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 3px; border-bottom: 1px solid #333; }
+  #hint { color: #fc0; font-family: monospace; }
+  .help { color: #999; font-size: 12px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="left">
+  <div class="row">
+    <input type="file" id="videoFile" accept="video/*">
+    <label>кадр, с <input type="range" id="time" min="0" max="1" step="0.1" value="0" style="width:300px"></label>
+    <span id="tval">0.0</span>
+    <label>Загрузить сцену <input type="file" id="jsonFile" accept=".json"></label>
+    <button id="save">Сохранить scene.json</button>
+  </div>
+  <canvas id="cv"></canvas>
+  <div class="row" id="hint">Выберите видео</div>
+</div>
+<div id="right">
+  <div class="row">
+    <select id="type"></select>
+    <input id="name" placeholder="имя (напр. north_in_1)" size="16">
+  </div>
+  <div class="help" id="typeHelp"></div>
+  <div class="help">
+    Клик — точка · <b>Enter</b> — закончить фигуру · <b>Backspace</b> — убрать последнюю точку ·
+    <b>Esc</b> — отменить фигуру. Для полосы после Enter двумя кликами задаётся стрелка направления движения
+    (от хвоста к носу).
+  </div>
+  <h4>Фигуры <span id="count"></span></h4>
+  <table id="shapes"></table>
+</div>
+<video id="video" style="display:none" muted></video>
+<script>
+const TYPES = {
+  road:           { kind: "polygon",  color: "#3a8", help: "Вся проезжая часть (где пешеход = jaywalking)." },
+  crosswalk:      { kind: "polygon",  color: "#fff", help: "Пешеходный переход (зебра). По одному на каждый." },
+  sidewalk:       { kind: "polygon",  color: "#888", help: "Тротуар / островок безопасности (необязательно)." },
+  lane:           { kind: "polygon",  color: "#39f", help: "Одна полоса + стрелка направления. Имя: направление_номер." },
+  stop_line:      { kind: "polyline", color: "#f33", help: "Стоп-линия, от одного края дороги к другому. Имя: подход." },
+  solid_line:     { kind: "polyline", color: "#fd0", help: "Сплошная разметка (каждая отдельно)." },
+  intersection:   { kind: "polygon",  color: "#c6f", help: "Площадь перекрёстка (для red_light / stop_line)." },
+  no_u_turn_zone: { kind: "polygon",  color: "#f90", help: "Зона, где разворот запрещён." },
+  exit_zone:      { kind: "polygon",  color: "#0cc", help: "Зона выезда с перекрёстка (для illegal_turn). Имя: куда ведёт." },
+  signal_red:     { kind: "polygon",  color: "#f00", help: "Красная секция светофора напротив (обвести плотно)." },
+  signal_yellow:  { kind: "polygon",  color: "#ff0", help: "Жёлтая секция светофора напротив." },
+  signal_green:   { kind: "polygon",  color: "#0f0", help: "Зелёная секция светофора напротив." },
+};
+
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const video = document.getElementById("video");
+const typeSel = document.getElementById("type");
+let shapes = [], current = [], arrowFor = null, arrow = [];
+
+for (const t of Object.keys(TYPES)) typeSel.add(new Option(t, t));
+const showHelp = () => document.getElementById("typeHelp").textContent = TYPES[typeSel.value].help;
+typeSel.onchange = () => { showHelp(); typeSel.blur(); };
+showHelp();
+
+function draw() {
+  if (video.videoWidth) ctx.drawImage(video, 0, 0, cv.width, cv.height);
+  const W = cv.width, H = cv.height, lw = Math.max(2, W / 640);
+  const path = (pts, close) => {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => i ? ctx.lineTo(x * W, y * H) : ctx.moveTo(x * W, y * H));
+    if (close) ctx.closePath();
+  };
+  const drawArrow = ([[x1, y1], [x2, y2]], color) => {
+    ctx.strokeStyle = ctx.fillStyle = color; ctx.lineWidth = lw * 2;
+    path([[x1, y1], [x2, y2]]); ctx.stroke();
+    const a = Math.atan2((y2 - y1) * H, (x2 - x1) * W), L = lw * 8;
+    ctx.beginPath(); ctx.moveTo(x2 * W, y2 * H);
+    ctx.lineTo(x2 * W - L * Math.cos(a - .4), y2 * H - L * Math.sin(a - .4));
+    ctx.lineTo(x2 * W - L * Math.cos(a + .4), y2 * H - L * Math.sin(a + .4));
+    ctx.fill();
+  };
+  for (const s of shapes) {
+    const t = TYPES[s.type], closed = t.kind === "polygon";
+    ctx.strokeStyle = t.color; ctx.lineWidth = lw;
+    path(s.points, closed); ctx.stroke();
+    if (closed) { ctx.globalAlpha = .15; ctx.fillStyle = t.color; ctx.fill(); ctx.globalAlpha = 1; }
+    if (s.direction) drawArrow(s.direction, t.color);
+    const [x, y] = s.points[0];
+    ctx.fillStyle = t.color; ctx.font = `${lw * 7}px sans-serif`;
+    ctx.fillText(s.name || s.type, x * W + 4, y * H - 4);
+  }
+  if (current.length) {
+    ctx.strokeStyle = "#fff"; ctx.setLineDash([6, 4]); ctx.lineWidth = lw;
+    path(current, false); ctx.stroke(); ctx.setLineDash([]);
+    for (const [x, y] of current) { ctx.fillStyle = "#fff"; ctx.fillRect(x * W - 3, y * H - 3, 6, 6); }
+  }
+  for (const [x, y] of arrow) { ctx.fillStyle = "#fc0"; ctx.fillRect(x * W - 4, y * H - 4, 8, 8); }
+  renderList(); renderHint();
+}
+
+function renderHint() {
+  const h = document.getElementById("hint");
+  if (!video.videoWidth) h.textContent = "Выберите видео";
+  else if (arrowFor) h.textContent = `Полоса «${arrowFor.name}»: кликните хвост, затем нос стрелки направления`;
+  else if (current.length) h.textContent = `${typeSel.value}: ${current.length} точек — Enter чтобы закончить`;
+  else h.textContent = `Тип: ${typeSel.value} — кликайте точки`;
+}
+
+function renderList() {
+  const tb = document.getElementById("shapes");
+  tb.innerHTML = "";
+  shapes.forEach((s, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td style="color:${TYPES[s.type].color}">${s.type}</td><td>${s.name || ""}</td>
+      <td>${s.points.length} т.${s.direction ? " →" : ""}</td><td><button data-i="${i}">✕</button></td>`;
+    tr.querySelector("button").onclick = () => { shapes.splice(i, 1); draw(); };
+    tb.appendChild(tr);
+  });
+  document.getElementById("count").textContent = `(${shapes.length})`;
+}
+
+function finishShape() {
+  const t = TYPES[typeSel.value];
+  const need = t.kind === "polygon" ? 3 : 2;
+  if (current.length < need) { alert(`Нужно минимум ${need} точки`); return; }
+  const shape = { type: typeSel.value, name: document.getElementById("name").value.trim(), points: current };
+  shapes.push(shape);
+  current = [];
+  if (shape.type === "lane") { arrowFor = shape; arrow = []; }
+  draw();
+}
+
+cv.onclick = ev => {
+  if (!video.videoWidth) return;
+  const r = cv.getBoundingClientRect();
+  const p = [+((ev.clientX - r.left) / r.width).toFixed(5), +((ev.clientY - r.top) / r.height).toFixed(5)];
+  if (arrowFor) {
+    arrow.push(p);
+    if (arrow.length === 2) { arrowFor.direction = arrow; arrowFor = null; arrow = []; }
+  } else current.push(p);
+  draw();
+};
+
+document.addEventListener("keydown", ev => {
+  if (ev.target.tagName === "INPUT" && ev.target.type === "text") { if (ev.code === "Enter") ev.target.blur(); return; }
+  if (ev.code === "Enter") finishShape();
+  else if (ev.code === "Backspace") { arrowFor ? arrow.pop() : current.pop(); }
+  else if (ev.code === "Escape") { current = []; if (arrowFor) { shapes.splice(shapes.indexOf(arrowFor), 1); arrowFor = null; arrow = []; } }
+  else return;
+  ev.preventDefault();
+  draw();
+});
+
+document.getElementById("videoFile").onchange = ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  video.src = URL.createObjectURL(f);
+  ev.target.blur();
+};
+video.onloadedmetadata = () => {
+  cv.width = video.videoWidth; cv.height = video.videoHeight;
+  const slider = document.getElementById("time");
+  slider.max = video.duration.toFixed(1);
+  video.currentTime = 0;
+};
+video.onseeked = draw;
+document.getElementById("time").oninput = ev => {
+  video.currentTime = +ev.target.value;
+  document.getElementById("tval").textContent = (+ev.target.value).toFixed(1);
+};
+
+document.getElementById("save").onclick = () => {
+  if (arrowFor) { alert("Сначала задайте стрелку направления полосы"); return; }
+  const lanesNoDir = shapes.filter(s => s.type === "lane" && !s.direction);
+  if (lanesNoDir.length) { alert("У некоторых полос нет направления"); return; }
+  const out = { coords: "normalized [x, y] in 0..1, origin top-left", shapes };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: "application/json" }));
+  a.download = "scene.json";
+  a.click();
+};
+
+document.getElementById("jsonFile").onchange = async ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  shapes = JSON.parse(await f.text()).shapes || [];
+  ev.target.blur();
+  draw();
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.DS_Store
+samples/
+proxy/
+cache/
+reports/
+scene/*.mp4
+scene/frame_4k.png
+labels/raw/*(*).json
+predictions*.json
+!predictions_samples.json

@@ -1,0 +1,8 @@
+# ByteTrack settings for ultralytics, tuned for ~10 analysed frames per second.
+tracker_type: bytetrack
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.3
+track_buffer: 30        # frames at the analysed rate (~3 s) before a lost track is dropped
+match_thresh: 0.8
+fuse_score: true
