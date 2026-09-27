@@ -12,14 +12,23 @@ import os
 import sys
 from pathlib import Path
 
-# Jury machines are offline; skip Ultralytics connectivity / update checks.
-os.environ.setdefault("YOLO_OFFLINE", "true")
-os.environ.setdefault("YOLO_VERBOSE", "False")
+# Jury machines are offline. Force before any Ultralytics import.
+os.environ["YOLO_OFFLINE"] = "true"
+os.environ["YOLO_VERBOSE"] = "False"
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src import pipeline  # noqa: E402
 from src.risk import RiskEstimator  # noqa: E402
+
+# Extra belt: disable analytics / cloud hooks even if SETTINGS were cached online.
+try:
+    from ultralytics.utils import SETTINGS  # noqa: E402
+
+    SETTINGS.update({"sync": False})
+except Exception:
+    pass
 
 CLASSES: list[str] = [
     "accident", "near_miss", "red_light", "wrong_way", "illegal_u_turn",
