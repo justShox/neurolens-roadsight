@@ -41,3 +41,28 @@ def smooth_mask(mask: np.ndarray, window: int) -> np.ndarray:
         return np.asarray(mask, bool)
     kernel = np.ones(window) / window
     return np.convolve(np.asarray(mask, float), kernel, mode="same") > 0.5
+
+
+def trim_sparse(times: np.ndarray, mask: np.ndarray, segs: list[Segment], *,
+                min_density: float = 0.45, window: float = 1.5) -> list[Segment]:
+    """Shrink each segment from both ends until a `window`-second edge is dense enough.
+
+    Stops over-long events that only have sparse flags near the boundary (hurts tIoU@0.7).
+    """
+    times, mask = np.asarray(times, float), np.asarray(mask, bool)
+    if not len(times):
+        return segs
+    step = float(times[1] - times[0]) if len(times) > 1 else 0.1
+    half = max(1, int(round(window / step)))
+    out: list[Segment] = []
+    for s, e in segs:
+        i0 = int(np.searchsorted(times, s, side="left"))
+        i1 = int(np.searchsorted(times, e - 1e-9, side="right")) - 1
+        i0, i1 = max(0, i0), min(len(times) - 1, i1)
+        while i0 + half <= i1 and mask[i0:i0 + half].mean() < min_density:
+            i0 += 1
+        while i1 - half >= i0 and mask[i1 - half + 1:i1 + 1].mean() < min_density:
+            i1 -= 1
+        if i1 >= i0 and times[i1] + step - times[i0] > 0:
+            out.append((float(times[i0]), float(times[i1] + step)))
+    return out

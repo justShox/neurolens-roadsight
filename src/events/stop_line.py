@@ -16,6 +16,8 @@ MIN_WAIT = 2.0       # s
 TRACK_GAP = 1.0
 MERGE_GAP = 3.0
 MIN_SEGMENT = 3.0
+PAD_START = 0.0
+PAD_END = 0.0
 
 
 def flagged(ctx: Context) -> np.ndarray:
@@ -27,4 +29,12 @@ def flagged(ctx: Context) -> np.ndarray:
 
 def detect(ctx: Context) -> list[Segment]:
     mask = ctx.timeline.mask_of(ctx.tracks, flagged(ctx))
-    return postprocess(ctx.timeline.segments(mask), max_gap=MERGE_GAP, min_len=MIN_SEGMENT, duration=ctx.duration)
+    return postprocess(
+        ctx.timeline.segments(mask),
+        max_gap=MERGE_GAP,
+        min_len=MIN_SEGMENT,
+        duration=ctx.duration,
+        pad_start=PAD_START,
+        pad_end=PAD_END,
+    )
+

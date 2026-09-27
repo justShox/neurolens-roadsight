@@ -11,13 +11,16 @@ from src.segments import Segment, postprocess
 
 STOP_SPEED = 0.01         # frame heights per second; below this the vehicle is standing
 MOVE_SPEED = 0.03         # above this a neighbour counts as moving
-MIN_STOPPED = 10.0        # s
+MIN_STOPPED = 15.0        # s
 MAX_STOPPED = 60.0        # s; longer is a parked car (or a static false detection), not an incident
 PASSING_RADIUS = 0.2      # frame heights around the stopped vehicle searched for moving traffic
-MIN_PASSING_SHARE = 0.3   # of the stopped time with moving traffic nearby
+MIN_PASSING_SHARE = 0.5   # of the stopped time with moving traffic nearby
 TRACK_GAP = 2.0
 MERGE_GAP = 3.0
 MIN_SEGMENT = 8.0
+PAD_START = 0.0
+PAD_END = 0.0
+
 
 
 def flagged(ctx: Context) -> np.ndarray:
@@ -41,4 +44,12 @@ def flagged(ctx: Context) -> np.ndarray:
 
 def detect(ctx: Context) -> list[Segment]:
     mask = ctx.timeline.mask_of(ctx.tracks, flagged(ctx))
-    return postprocess(ctx.timeline.segments(mask), max_gap=MERGE_GAP, min_len=MIN_SEGMENT, duration=ctx.duration)
+    return postprocess(
+        ctx.timeline.segments(mask),
+        max_gap=MERGE_GAP,
+        min_len=MIN_SEGMENT,
+        duration=ctx.duration,
+        pad_start=PAD_START,
+        pad_end=PAD_END,
+    )
+

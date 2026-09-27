@@ -8,7 +8,7 @@ from src.events.common import Context, near_any, sustained
 from src.segments import Segment, postprocess
 
 MIN_PRESENCE = 0.5        # s a person / vehicle must stay on the crossing to count
-MIN_VEHICLE_SPEED = 0.0   # includes stopped vehicles blocking/cutting off pedestrians
+MIN_VEHICLE_SPEED = 0.005 # frame heights / s; drops parked cars, keeps creeping violators
 MAX_DISTANCE = 0.16       # frame heights between pedestrian and vehicle foot points
 TRACK_GAP = 1.0
 MERGE_GAP = 0.5
@@ -25,17 +25,16 @@ def flagged(ctx: Context) -> tuple[np.ndarray, np.ndarray]:
     for crossing in ctx.scene.of_type("crosswalk"):
         peds = ctx.pedestrians.copy()
         peds[peds] = crossing.contains(ctx.foot[peds])
-        vehs = ctx.vehicles.copy()
-        if MIN_VEHICLE_SPEED > 0:
-            vehs &= (ctx.speed >= MIN_VEHICLE_SPEED)
+        vehs = ctx.vehicles & (ctx.speed >= MIN_VEHICLE_SPEED)
         if crossing.name in ("left_crosswalk", "right_crosswalk"):
-            vehs &= (sig_rows == signal.RED)
+            vehs &= sig_rows == signal.RED
         vehs[vehs] = crossing.contains(ctx.foot[vehs])
         peds = sustained(ctx.tracks, peds, MIN_PRESENCE, TRACK_GAP)
         vehs = sustained(ctx.tracks, vehs, MIN_PRESENCE, TRACK_GAP)
-        both = ctx.timeline.mask_of(ctx.tracks, near_any(ctx, peds, vehs, MAX_DISTANCE))
+        hit = near_any(ctx, vehs, peds, MAX_DISTANCE)
+        both = ctx.timeline.mask_of(ctx.tracks, hit)
         mask |= both
-        rows |= (peds | vehs) & both[ctx.timeline.index(ctx.tracks)]
+        rows |= (peds | hit) & both[ctx.timeline.index(ctx.tracks)]
     return mask, rows
 
 
@@ -49,4 +48,3 @@ def detect(ctx: Context) -> list[Segment]:
         pad_start=PAD_START,
         pad_end=PAD_END,
     )
-

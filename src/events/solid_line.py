@@ -11,12 +11,15 @@ import numpy as np
 from src.events.common import ASPECT, Context, bottom_corners
 from src.segments import Segment, postprocess
 
-SIDE_WINDOW = 0.7        # s on each side of the crossing moment used to measure the offset
-MIN_OFFSET = 0.006       # mean distance from the line required on both sides (aspect-corrected units)
+SIDE_WINDOW = 1.0        # s on each side of the crossing moment used to measure the offset
+MIN_OFFSET = 0.004       # mean distance from the line required on both sides (aspect-corrected units)
 MAX_HALF_SPAN = 3.0      # s; the event never extends further than this from the crossing moment
 LINE_MARGIN = 0.05       # fraction of the segment length allowed beyond its end points
 MERGE_GAP = 2.0
 MIN_SEGMENT = 0.5
+PAD_START = 0.5
+PAD_END = 0.5
+
 
 
 def _offset_and_param(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -67,4 +70,12 @@ def detect(ctx: Context) -> list[Segment]:
         for line in lines:
             for a, b in zip(line.points[:-1], line.points[1:]):
                 segs += _crossings(tr.t[rows], ctx.foot[rows], left[rows], right[rows], a, b, ctx.timeline.step)
-    return postprocess(segs, max_gap=MERGE_GAP, min_len=MIN_SEGMENT, duration=ctx.duration)
+    return postprocess(
+        segs,
+        max_gap=MERGE_GAP,
+        min_len=MIN_SEGMENT,
+        duration=ctx.duration,
+        pad_start=PAD_START,
+        pad_end=PAD_END,
+    )
+

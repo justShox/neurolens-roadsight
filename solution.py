@@ -8,14 +8,18 @@ The implementation lives in src/.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
-import numpy as np
+# Jury machines are offline; skip Ultralytics connectivity / update checks.
+os.environ.setdefault("YOLO_OFFLINE", "true")
+os.environ.setdefault("YOLO_VERBOSE", "False")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src import pipeline  # noqa: E402
+from src.risk import RiskEstimator  # noqa: E402
 
 CLASSES: list[str] = [
     "accident", "near_miss", "red_light", "wrong_way", "illegal_u_turn",
@@ -31,12 +35,4 @@ def detect_events(video_path: str) -> list[list]:
     return pipeline.detect_events(video_path)
 
 
-class RiskEstimator:
-    """Part B: causal accident anticipation. Not implemented yet (constant zero risk)."""
-
-    def reset(self, meta: dict) -> None:
-        self.meta = meta
-        self.last_score = 0.0
-
-    def step(self, frame: np.ndarray, t_sec: float) -> float:
-        return self.last_score
+__all__ = ["CLASSES", "RISK_HORIZON_SEC", "detect_events", "RiskEstimator"]

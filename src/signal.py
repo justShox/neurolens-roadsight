@@ -7,6 +7,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from src import config
 from src.scene import Scene
 
 UNKNOWN, RED, YELLOW, GREEN = -1, 0, 1, 2
@@ -15,6 +16,8 @@ CROP_PAD = 0.04          # normalised margin around the lamps; covers the camera
 NOISE_MULT = 2.5        # multiplier on high-frequency noise for the detection threshold
 MIN_CONTRAST = 3.0      # absolute floor on colour contrast
 MIN_RUN = 5             # samples; shorter state runs take the previous state
+# Analysed-frame step used when converting run lengths to seconds (STRIDE / ~29.97 fps).
+SAMPLE_DT = config.STRIDE / 29.97
 
 
 def crop_box(scene: Scene) -> tuple[float, float, float, float]:
@@ -106,7 +109,7 @@ def _refine_cycles(state: np.ndarray) -> np.ndarray:
         for s, e in zip(starts, ends):
             prev_st = out[s - 1] if s > 0 else UNKNOWN
             next_st = out[e] if e < len(out) else UNKNOWN
-            dur = (e - s) * 2 / 25.0
+            dur = (e - s) * SAMPLE_DT
 
             if out[s] == YELLOW:
                 if prev_st == RED or (prev_st == GREEN and next_st == GREEN):
@@ -127,10 +130,10 @@ def _refine_cycles(state: np.ndarray) -> np.ndarray:
 
     if out[0] == UNKNOWN:
         first = np.flatnonzero(out != UNKNOWN)
-        if len(first) and first[0] * 2 / 25.0 < 5.0:
+        if len(first) and first[0] * SAMPLE_DT < 5.0:
             out[:first[0]] = out[first[0]]
     if out[-1] == UNKNOWN:
         last = np.flatnonzero(out != UNKNOWN)
-        if len(last) and (len(out) - 1 - last[-1]) * 2 / 25.0 < 5.0:
+        if len(last) and (len(out) - 1 - last[-1]) * SAMPLE_DT < 5.0:
             out[last[-1] + 1:] = out[last[-1]]
     return out

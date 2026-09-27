@@ -1,6 +1,16 @@
+# Local / runtime junk
 .venv/
 __pycache__/
+*.py[cod]
 .DS_Store
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Large media and working caches (not part of the submission package)
 samples/
 proxy/
 cache/
@@ -8,5 +18,20 @@ reports/
 scene/*.mp4
 scene/frame_4k.png
 labels/raw/*(*).json
+labels/scene*.json
+!labels/dev_labels.json
+
+# Harness outputs except the required samples prediction file
 predictions*.json
 !predictions_samples.json
+*.log
+
+# Task briefing / internal notes (not needed to run the solution)
+PLAN.md
+*.pdf
+wiut_cv_scripts/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
